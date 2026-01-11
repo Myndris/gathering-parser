@@ -270,7 +270,40 @@ document.getElementById('parseItemBtn').addEventListener('click', () => {
         });
       }
     }
+
+  // Sophie's Splendid Stitches detection
+  if (/Sophie'?s Splendid Stitches/i.test(line)) {
+    // Collect recipe lines following Sophie's entry
+    let recipeLines = [];
+    for (let j = i + 1; j < linesFiltered.length; j++) {
+      // Stop when hitting another header or unrelated line
+      if (/^(Baldwin|Swipp|Hibernal Den|Food|Bonding|Trivia|History|See Also|References)/i.test(linesFiltered[j])) break;
+      if (/^\s{2,}|\([0-9]+/.test(linesFiltered[j]) || /^[A-Z]/.test(linesFiltered[j])) {
+        recipeLines.push(linesFiltered[j]);
+      }
+    }
+
+    const recipeText = recipeLines.join(' ').trim();
+    const match = line.match(/Sophie'?s Splendid Stitches:?\s*(.*)/i);
+    let detail = "";
+
+    // If recipe lines exist, use them
+    if (recipeText) {
+      detail = `${match && match[1] ? match[1].trim() + ' ' : ''}${recipeText}`.trim();
+    }
+    // Otherwise, fallback to single-line info
+    else if (match && match[1]) {
+      detail = match[1].trim();
+    }
+
+    if (detail) {
+      foundCategories.push({
+        category: "Sophie's Splendid Stitches",
+        detail: detail
+      });
+    }
   }
+}
 
 
 
