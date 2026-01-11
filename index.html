@@ -86,7 +86,7 @@
 
 <!-- Item Page Parser -->
 <div id="itemPage" style="display:none;">
-  <p>Paste the full text of a single Flight Rising wiki item page below and click “Parse Item”.</p>
+  <p>Navigate to a wiki page of the fandom wiki. (IE: <a href="https://flightrising.fandom.com/wiki/Rusty_Pickaxe" target="_blank">Rusty Pickaxe</a>, type CTRL + A, then paste the full text below and click “Parse Item”.</p>
   <textarea id="itemText" placeholder="Paste entire wiki item page text here..."></textarea>
   <button id="parseItemBtn">Parse Item Page</button>
   <div id="itemOutput" class="results"></div>
@@ -184,7 +184,8 @@ document.getElementById('parseItemBtn').addEventListener('click', () => {
     return match[0].replace(new RegExp(`(?:^|\\n)${start}`, "i"), "").trim();
   };
 
-  const usage = extractSection("Usage", "Trivia|History|See Also|References");
+  // Allow "Usage" or "Uses" headers
+const usage = extractSection("(?:Usage|Uses)", "Trivia|History|See Also|References");
   if (!usage) {
     output.innerHTML = `<p><em>No usage found.</em></p>`;
     return;
@@ -248,28 +249,52 @@ document.getElementById('parseItemBtn').addEventListener('click', () => {
 
 
     // Baldwin detection
-    if (/Baldwin'?s Bubbling Brew/i.test(line)) {
-      const match = line.match(/Baldwin'?s Bubbling Brew:?\s*(.*)/i);
-      let detail = "";
-      if (match && match[1]) {
-        detail = match[1].trim();
-      } else {
-        detail = "can be transmuted into something in Baldwin's Bubbling Brew";
-      }
+if (/Baldwin/i.test(line)) {
+  const match = line.match(/Baldwin'?s Bubbling Brew:?\s*(.*)/i);
+  let detail = match && match[1] ? match[1].trim() : "";
 
-      // Skip generic useless Baldwin text
-      if (/can be transmuted into a random color of/i.test(detail)) {
-        continue; // ignore this entry completely
-      }
-
-      // Prevent Baldwin from stealing Swipp lines (skip if Swipp appears later)
-      if (!/Swipp'?s Swap Stand/i.test(usage.slice(usage.indexOf(line) + line.length))) {
-        foundCategories.push({
-          category: "Baldwin",
-          detail: detail
-        });
-      }
+  // Collect recipe lines following the Baldwin line
+  let recipeLines = [];
+  for (let j = i + 1; j < linesFiltered.length; j++) {
+    if (/^(Swipp|Hibernal Den|Sophie|Food|Bonding|Trivia|History|See Also|References)/i.test(linesFiltered[j])) break;
+    if (/^\s{2,}|\([0-9]+/.test(linesFiltered[j]) || /^[A-Z]/.test(linesFiltered[j])) {
+      recipeLines.push(linesFiltered[j]);
     }
+  }
+
+  const recipeText = recipeLines.join(' ').trim();
+
+  // Skip if Baldwin line is only random-color transmutation with no other purpose
+  if (/(random color of|melted down)/i.test(detail) && !/recipe|required|create|ingredient|used/i.test(detail) && !recipeText) {
+    continue;
+  }
+
+
+  // If recipe text exists, build structured output
+  if (recipeText) {
+    // Merge any descriptive text before the recipe
+    if (/recipe|required|create|ingredient|used/i.test(detail)) {
+      detail = `${detail.replace(/can be transmuted into a random color of[^,]*,?\s*/i, '').trim()} ${recipeText}`.trim();
+    } else {
+      detail = `used in a Baldwin recipe: ${recipeText}`;
+    }
+  }
+
+  // Catch fallback cases where no recipe lines but text still relevant
+  if (!recipeText && /Baldwin/i.test(detail)) {
+    detail = detail.replace(/can be transmuted into a random color of[^,]*,?\s*/i, '').trim();
+  }
+
+  if (detail) {
+    foundCategories.push({
+      category: "Baldwin",
+      detail: detail
+    });
+  }
+}
+
+
+
 
   // Sophie's Splendid Stitches detection
   if (/Sophie'?s Splendid Stitches/i.test(line)) {
