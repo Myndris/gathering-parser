@@ -163,74 +163,200 @@ document.getElementById('parseItemBtn').addEventListener('click', () => {
   const output = document.getElementById('itemOutput');
   output.innerHTML = '';
 
-  // Identify the item name (appears immediately after "Edit" and before description or Item ID)
+  // Identify item name (line after "Edit")
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   let itemName = "Unknown Item";
-
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    // When "Edit" is found, next non-empty capitalized line is the item name
-    if (/^Edit$/i.test(line) && lines[i + 1]) {
+    if (/^Edit$/i.test(lines[i]) && lines[i + 1]) {
       const candidate = lines[i + 1].trim();
-      if (candidate.length > 1 && /^[A-Z][A-Za-z' -]+$/.test(candidate)) {
+      if (candidate && /^[A-Z][A-Za-z' -]+$/.test(candidate)) {
         itemName = candidate;
         break;
       }
     }
   }
 
-  // Fallback in case "Edit" is missing
-  if (itemName === "Unknown Item") {
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (/^[A-Z][A-Za-z' -]+$/.test(line) && !/^(Sign In|Register|Recent|Skip to content|Item ID|The more confident)/i.test(line)) {
-        itemName = line;
-        break;
+  // Extract section between headers
+  const extractSection = (start, stop) => {
+    const regex = new RegExp(`(?:^|\\n)${start}[\\s\\S]*?(?=(?:^|\\n)(?:${stop})(?:\\n|$))`, "i");
+    const match = text.match(regex);
+    if (!match) return null;
+    return match[0].replace(new RegExp(`(?:^|\\n)${start}`, "i"), "").trim();
+  };
+
+  const usage = extractSection("Usage", "Trivia|History|See Also|References");
+  if (!usage) {
+    output.innerHTML = `<p><em>No usage found.</em></p>`;
+    return;
+  }
+
+  // Identify category based on keywords
+  let category = "Other";
+  let itemDetail = "";
+
+  const linesFiltered = usage.split('\n').map(l => l.trim()).filter(Boolean);
+
+  // Detect all relevant categories regardless of order
+  const foundCategories = [];
+
+  for (let i = 0; i < linesFiltered.length; i++) {
+    const line = linesFiltered[i];
+
+    // Hibernal Den detection
+    if (/Hibernal Den/i.test(line)) {
+      const match = line.match(/Hibernal Den:\s*(.*)/i);
+      if (match) {
+        foundCategories.push({
+          category: "Hibernal Den",
+          detail: match[1].trim()
+        });
+      }
+    }
+
+    // Swipp’s Swap Stand detection
+    if (/Swipp'?s Swap Stand/i.test(line)) {
+      // Collect recipe lines following Swipp
+      let recipeLines = [];
+      for (let j = i + 1; j < linesFiltered.length; j++) {
+        // Stop when hitting a new header or unrelated line
+        if (/^(Baldwin|Food|Hibernal Den|Bonding|Trivia|History|See Also|References)/i.test(linesFiltered[j])) break;
+        if (/^\s{2,}|\([0-9]+/.test(linesFiltered[j]) || /^[A-Z]/.test(linesFiltered[j])) {
+          recipeLines.push(linesFiltered[j]);
+        }
+      }
+
+      // If we have recipe details, use only that
+      if (recipeLines.length > 0) {
+        const recipeText = recipeLines.join(' ').trim();
+        foundCategories.push({
+          category: "Swipp Trades",
+          detail: `part of the required items for a Swipp trade: ${recipeText}`
+        });
+      }
+      // If not, capture the single-line version only once
+      else if (!/part of the required items for a Swipp trade:$/i.test(line)) {
+        const match = line.match(/Swipp'?s Swap Stand:?\s*(.*)/i);
+        if (match && match[1]) {
+          foundCategories.push({
+            category: "Swipp Trades",
+            detail: `part of the required items for a Swipp trade: ${match[1].trim()}`
+          });
+        }
+      }
+    }
+
+
+
+    // Baldwin detection
+    if (/Baldwin'?s Bubbling Brew/i.test(line)) {
+      const match = line.match(/Baldwin'?s Bubbling Brew:?\s*(.*)/i);
+      let detail = "";
+      if (match && match[1]) {
+        detail = match[1].trim();
+      } else {
+        detail = "can be transmuted into something in Baldwin's Bubbling Brew";
+      }
+
+      // Skip generic useless Baldwin text
+      if (/can be transmuted into a random color of/i.test(detail)) {
+        continue; // ignore this entry completely
+      }
+
+      // Prevent Baldwin from stealing Swipp lines (skip if Swipp appears later)
+      if (!/Swipp'?s Swap Stand/i.test(usage.slice(usage.indexOf(line) + line.length))) {
+        foundCategories.push({
+          category: "Baldwin",
+          detail: detail
+        });
       }
     }
   }
 
 
 
-  // Extracts section content between two headers
-  const extractSection = (start, stop) => {
-    const regex = new RegExp(`(?:^|\\n)${start}[\\s\\S]*?(?=(?:^|\\n)(?:${stop})(?:\\n|$))`, "i");
-    const match = text.match(regex);
-    if (!match) return null;
-    let content = match[0]
-      .replace(new RegExp(`(?:^|\\n)${start}`, "i"), "")
-      .trim();
-    return content;
+
+
+// Clean unnecessary lines
+const cleanUsage = linesFiltered
+  .map(line => line.trim())                                   // Trim spaces/tabs
+  .filter(line => line.length > 0)
+  .filter(line => !/^Food:/i.test(line))                      // Remove Food lines
+  .filter(line => !/^Trivia/i.test(line))                     // Remove Trivia header
+  .filter(line => !/^Monster\b/i.test(line))                  // Remove any line starting with "Monster"
+  .filter(line => !/^Baldwin'?s Bubbling Brew/i.test(line))   // Remove Baldwin base line
+  .filter(line => !/^Swipp'?s Swap Stand/i.test(line))        // Remove Swipp base line
+  .filter(line => !/^This item|^They'?re|^Satin/i.test(line)) // Remove trivia fluff
+  .join('<br>');
+
+
+
+  // Load or create stored data
+  const storedData = JSON.parse(localStorage.getItem('frCategories') || '{}');
+  if (!storedData[category]) storedData[category] = [];
+
+  // Display the current parsed item result
+const currentSection = document.createElement('div');
+currentSection.className = 'category';
+currentSection.innerHTML = `<h2>Current Parse</h2>`;
+const currentList = document.createElement('ul');
+currentList.className = 'item-list';
+
+// If a valid recipe (Swipp, Baldwin, or Hibernal Den) was found, display that
+if (foundCategories.length > 0) {
+  foundCategories.forEach(entryObj => {
+    const { category, detail } = entryObj;
+    const entry = `${itemName} | ${detail}`;
+    const li = document.createElement('li');
+    li.textContent = entry;
+    currentList.appendChild(li);
+
+    if (!storedData[category]) storedData[category] = [];
+    if (!storedData[category].includes(entry)) {
+      storedData[category].push(entry);
+    }
+  });
+  localStorage.setItem('frCategories', JSON.stringify(storedData));
+} else {
+  // Otherwise, show the parsed name and basic usage
+  const li = document.createElement('li');
+  li.innerHTML = `<strong>${itemName}</strong><br>${cleanUsage || '<em>No special recipe detected.</em>'}`;
+  currentList.appendChild(li);
+}
+
+
+currentSection.appendChild(currentList);
+output.appendChild(currentSection);
+
+// Render all saved categories below
+const savedTitle = document.createElement('h2');
+savedTitle.textContent = 'Saved Categories';
+output.appendChild(savedTitle);
+
+Object.entries(storedData).forEach(([cat, items]) => {
+  const section = document.createElement('div');
+  section.className = 'category';
+  section.innerHTML = `<h2>${cat}</h2><ul class="item-list"></ul>`;
+  const ul = section.querySelector('ul');
+  items.forEach(item => {
+    const li = document.createElement('li');
+    li.textContent = item;
+    ul.appendChild(li);
+  });
+  section.appendChild(ul);
+  output.appendChild(section);
+});
+
+
+  // Add clear storage button
+  const clearBtn = document.createElement('button');
+  clearBtn.textContent = 'Clear Saved Data';
+  clearBtn.style.display = 'block';
+  clearBtn.style.margin = '20px auto';
+  clearBtn.onclick = () => {
+    localStorage.removeItem('frCategories');
+    output.innerHTML = '<p><em>Storage cleared.</em></p>';
   };
-
-  // Capture sections cleanly
-  const obtained = extractSection("Obtained Via", "Usage|History|See Also|References");
-  const usage = extractSection("Usage", "Trivia|History|See Also|References");
-
-
-  // Clean and preserve indentation, remove food, trivia, and Baldwin lines
-  const formatText = (txt) => {
-    return txt
-      .split('\n')
-      .map(line => line.trimStart())
-      .filter(line => line.length > 0)
-      .filter(line => !/^Food:/i.test(line))                 // removes lines starting with "Food:"
-      .filter(line => !/^Trivia/i.test(line))                // removes lines starting with "Trivia"
-      .filter(line => !/^Baldwin'?s Bubbling Brew/i.test(line)) // removes any "Baldwin's Bubbling Brew" line
-      .filter(line => !/^This item|^Satin|^They'?re/i.test(line)) // removes trivia sublines
-      .join('<br>');
-  };
-
-
-
-  // Output formatted results
-  output.innerHTML = `
-    <div class="category">
-      <h2>${itemName}</h2>
-
-      ${usage ? `<p><strong>Usage:</strong><br>${formatText(usage)}</p>` : ""}
-    </div>
-  `;
+  output.appendChild(clearBtn);
 });
 
 </script>
