@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flight Rising Gathering & Item Parser</title>
+<style>
+  body {
+    font-family: system-ui, sans-serif;
+    background-color: #fafafa;
+    color: #222;
+    margin: 0;
+    padding: 20px;
+  }
+  h1, h2 {
+    text-align: center;
+  }
+  textarea {
+    width: 100%;
+    height: 250px;
+    font-family: monospace;
+    font-size: 14px;
+    padding: 10px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    box-sizing: border-box;
+  }
+  button {
+    display: block;
+    margin: 20px auto;
+    padding: 10px 20px;
+    font-size: 16px;
+    border-radius: 6px;
+    border: none;
+    background: #007acc;
+    color: #fff;
+    cursor: pointer;
+  }
+  button:hover {
+    background: #005fa3;
+  }
+  .tab-buttons {
+    text-align: center;
+    margin-bottom: 20px;
+  }
+  .tab-buttons button {
+    margin: 0 5px;
+    background: #ccc;
+  }
+  .tab-buttons button.active {
+    background: #007acc;
+    color: white;
+  }
+  .results {
+    margin-top: 20px;
+  }
+  .category {
+    margin-top: 30px;
+    padding: 10px;
+    border-left: 4px solid #007acc;
+    background: #f0f8ff;
+  }
+  .category h2 {
+    margin-top: 0;
+  }
+  .item-list {
+    margin-left: 20px;
+  }
+</style>
+</head>
+<body>
+<h1>Flight Rising Gathering & Item Parser</h1>
+
+<div class="tab-buttons">
+  <button id="gatherTab" class="active">Gathering Parser</button>
+  <button id="itemTab">Item Page Parser</button>
+</div>
+
+<!-- Gathering Parser -->
+<div id="gatheringPage">
+  <p>Paste the wiki source text below and click “Extract Items”.</p>
+  <textarea id="inputText" placeholder="Paste Flight Rising gathering source here..."></textarea>
+  <button id="extractBtn">Extract Items</button>
+  <div id="output" class="results"></div>
+</div>
+
+<!-- Item Page Parser -->
+<div id="itemPage" style="display:none;">
+  <p>Paste the full text of a single Flight Rising wiki item page below and click “Parse Item”.</p>
+  <textarea id="itemText" placeholder="Paste entire wiki item page text here..."></textarea>
+  <button id="parseItemBtn">Parse Item Page</button>
+  <div id="itemOutput" class="results"></div>
+</div>
+
+<script>
+// ===== TAB SWITCHING =====
+document.getElementById('gatherTab').onclick = () => {
+  document.getElementById('gatheringPage').style.display = 'block';
+  document.getElementById('itemPage').style.display = 'none';
+  document.getElementById('gatherTab').classList.add('active');
+  document.getElementById('itemTab').classList.remove('active');
+};
+document.getElementById('itemTab').onclick = () => {
+  document.getElementById('gatheringPage').style.display = 'none';
+  document.getElementById('itemPage').style.display = 'block';
+  document.getElementById('itemTab').classList.add('active');
+  document.getElementById('gatherTab').classList.remove('active');
+};
+
+// ===== GATHERING PARSER =====
+document.getElementById('extractBtn').addEventListener('click', () => {
+  const text = document.getElementById('inputText').value;
+  const outputDiv = document.getElementById('output');
+  outputDiv.innerHTML = '';
+
+  const sectionRegex = /==\s*([A-Za-z ]+)\s*==([\s\S]*?)(?=(?:==|$))/g;
+  const data = {};
+  let sectionMatch;
+
+  while ((sectionMatch = sectionRegex.exec(text)) !== null) {
+    const category = sectionMatch[1].trim();
+    const sectionContent = sectionMatch[2];
+    const levelRegex = /(?:'''[\w\s]+'''[^\n]*\n)?\s*Level\s*(\d+):([\s\S]*?)(?=(?:Level\s*\d+:|$))/g;
+    let levelMatch;
+    const items = [];
+
+    while ((levelMatch = levelRegex.exec(sectionContent)) !== null) {
+      const level = levelMatch[1].trim();
+      const levelContent = levelMatch[2];
+      const itemRegex = /[\w\s'()!-]+\.png\|\[\[([^\]]+)\]\]\s*[-–]\s*([A-Za-z, ]+)/g;
+      let itemMatch;
+      while ((itemMatch = itemRegex.exec(levelContent)) !== null) {
+        items.push(`${itemMatch[1]} - ${itemMatch[2]} (Level ${level})`);
+      }
+    }
+    if (items.length > 0) data[category] = items;
+  }
+
+  if (Object.keys(data).length === 0) {
+    outputDiv.innerHTML = '<p><em>No items found.</em></p>';
+    return;
+  }
+
+  for (const [category, items] of Object.entries(data)) {
+    const section = document.createElement('div');
+    section.className = 'category';
+    section.innerHTML = `<h2>${category}</h2>`;
+    const list = document.createElement('ul');
+    list.className = 'item-list';
+    items.forEach(item => {
+      const li = document.createElement('li');
+      li.textContent = item;
+      list.appendChild(li);
+    });
+    section.appendChild(list);
+    outputDiv.appendChild(section);
+  }
+});
+
+// ===== ITEM PAGE PARSER =====
+document.getElementById('parseItemBtn').addEventListener('click', () => {
+  const text = document.getElementById('itemText').value;
+  const output = document.getElementById('itemOutput');
+  output.innerHTML = '';
+
+  // Identify the item name (appears immediately after "Edit" and before description or Item ID)
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  let itemName = "Unknown Item";
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // When "Edit" is found, next non-empty capitalized line is the item name
+    if (/^Edit$/i.test(line) && lines[i + 1]) {
+      const candidate = lines[i + 1].trim();
+      if (candidate.length > 1 && /^[A-Z][A-Za-z' -]+$/.test(candidate)) {
+        itemName = candidate;
+        break;
+      }
+    }
+  }
+
+  // Fallback in case "Edit" is missing
+  if (itemName === "Unknown Item") {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (/^[A-Z][A-Za-z' -]+$/.test(line) && !/^(Sign In|Register|Recent|Skip to content|Item ID|The more confident)/i.test(line)) {
+        itemName = line;
+        break;
+      }
+    }
+  }
+
+
+
+  // Extracts section content between two headers
+  const extractSection = (start, stop) => {
+    const regex = new RegExp(`(?:^|\\n)${start}[\\s\\S]*?(?=(?:^|\\n)(?:${stop})(?:\\n|$))`, "i");
+    const match = text.match(regex);
+    if (!match) return null;
+    let content = match[0]
+      .replace(new RegExp(`(?:^|\\n)${start}`, "i"), "")
+      .trim();
+    return content;
+  };
+
+  // Capture sections cleanly
+  const obtained = extractSection("Obtained Via", "Usage|History|See Also|References");
+  const usage = extractSection("Usage", "Trivia|History|See Also|References");
+
+
+  // Clean and preserve indentation, remove food, trivia, and Baldwin lines
+  const formatText = (txt) => {
+    return txt
+      .split('\n')
+      .map(line => line.trimStart())
+      .filter(line => line.length > 0)
+      .filter(line => !/^Food:/i.test(line))                 // removes lines starting with "Food:"
+      .filter(line => !/^Trivia/i.test(line))                // removes lines starting with "Trivia"
+      .filter(line => !/^Baldwin'?s Bubbling Brew/i.test(line)) // removes any "Baldwin's Bubbling Brew" line
+      .filter(line => !/^This item|^Satin|^They'?re/i.test(line)) // removes trivia sublines
+      .join('<br>');
+  };
+
+
+
+  // Output formatted results
+  output.innerHTML = `
+    <div class="category">
+      <h2>${itemName}</h2>
+
+      ${usage ? `<p><strong>Usage:</strong><br>${formatText(usage)}</p>` : ""}
+    </div>
+  `;
+});
+
+</script>
+
+</body>
+</html>
